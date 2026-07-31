@@ -2,7 +2,7 @@ name: JobWatch Daily Search
 
 on:
   schedule:
-    - cron: '0 5 * * *'  # Runs daily at 7:00 AM Egypt time
+    - cron: '0 */8 * * *'  # Runs every 8 hours (e.g., 00:00, 08:00, 16:00 UTC)
   workflow_dispatch:
 
 jobs:
