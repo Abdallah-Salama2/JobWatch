@@ -12,19 +12,22 @@ JOBSPIPE_KEY = os.environ["JOBSPIPE_KEY"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-MAX_YEARS = 2
-MIN_STACK_MATCHES = 2
+MAX_YEARS = 5
+MIN_STACK_MATCHES = 1  # Kept at 1 to ensure broad match across dev roles
 
 BASE_FILTERS = {
     "job_title_or": [
-        "backend engineer", "backend developer", "software engineer",
-        "python developer", "python engineer", "flask developer",
-        "api developer", "api engineer",
-        "devops engineer", "devops developer",
-        "site reliability engineer", "sre",
-        "platform engineer", "infrastructure engineer",
-        "sysadmin", "system administrator", "linux administrator",
-        "linux engineer",
+        # Full-Stack & Web
+        "fullstack developer", "fullstack engineer", "full stack engineer",
+        "web developer", "software engineer", "software developer",
+        
+        # Backend & APIs
+        "backend engineer", "backend developer", "api developer", "api engineer",
+        "php developer", "laravel developer", "python developer", "node developer",
+        
+        # Frontend
+        "frontend developer", "frontend engineer", "react developer", 
+        "vue developer", "javascript developer"
     ],
     "job_title_not": [
         "senior", "sr.", "lead", "principal", "staff",
@@ -42,16 +45,12 @@ SEARCHES = [
 ]
 
 STACK_KEYWORDS = [
-    "python", "flask", "fastapi", "django",
-    "go", "golang",
-    "postgresql", "postgres",
-    "docker", "kubernetes", "k8s",
-    "linux", "debian", "ubuntu",
-    "ansible", "terraform",
-    "nginx", "traefik",
-    "redis",
-    "github actions", "ci/cd", "cicd",
-    "bash", "shell script",
+    # Core Languages & Frameworks
+    "php", "laravel", "javascript", "js", "typescript", "react", "vue",
+    "inertia", "python", "node", "express", "sql", "mysql", "postgresql",
+    
+    # Tools & Concepts
+    "tailwind", "rest api", "restful", "docker", "git", "linux", "html", "css"
 ]
 
 EXP_PATTERN = re.compile(
@@ -157,10 +156,10 @@ def main():
 
     if not new_jobs:
         print("No new jobs today.")
-        send_telegram("📭 No new matching jobs today.")
+        send_telegram("📭 No new matching developer jobs today.")
         return
 
-    send_telegram(f"🔍 *{len(new_jobs)} job(s) matching your stack today:*")
+    send_telegram(f"🔍 *{len(new_jobs)} dev job(s) matching your profile today:*")
 
     for job in new_jobs:
         sal = ""
@@ -172,7 +171,7 @@ def main():
         cities = job.get("cities") or []
         country = job.get("country") or ""
         location = cities[0] if cities else country or "Remote"
-        modality = "🌍 Remote" if is_remote else "🏢 On-site"
+        modality = "🌍 Remote" if is_remote else "🏢 On-site / Egypt"
 
         apply_url = job.get("url") or job.get("final_url") or job.get("source_url") or ""
 
