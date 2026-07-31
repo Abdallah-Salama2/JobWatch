@@ -12,7 +12,7 @@ JOBSPIPE_KEY = os.environ["JOBSPIPE_KEY"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-MAX_YEARS = 2
+MAX_YEARS = 3
 MIN_STACK_MATCHES = 1  # Kept at 1 to ensure broad match across dev roles
 
 BASE_FILTERS = {
