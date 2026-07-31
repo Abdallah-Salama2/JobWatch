@@ -1,17 +1,15 @@
-name: Run JobWatch Daily
+name: JobWatch Daily Search
 
 on:
   schedule:
-    # Runs daily at 7:00 AM Cairo time (4:00 AM UTC)
-    - cron: '0 4 * * *'
-  workflow_dispatch: # Allows manual trigger for testing
+    - cron: '0 5 * * *'  # Runs daily at 7:00 AM Egypt time
+  workflow_dispatch:
 
 jobs:
-  run-jobwatch:
+  run-tracker:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -19,27 +17,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Restore SQLite database cache
-        uses: actions/cache@v4
-        with:
-          path: jobs.db
-          key: jobs-db-${{ github.run_id }}
-          restore-keys: |
-            jobs-db-
-
       - name: Install dependencies
-        run: pip install httpx python-dotenv
+        run: pip install httpx
 
-      - name: Run Junior Job Tracker
+      - name: Run Junior/Mid Tracker
         env:
           JOBSPIPE_KEY: ${{ secrets.JOBSPIPE_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN_JUNIOR }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python junior_jobs.py
-      
-      - name: Run Senior Job Tracker
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID_JUNIOR }}
+        run: python main.py
+
+      - name: Run Senior Tracker
         env:
           JOBSPIPE_KEY: ${{ secrets.JOBSPIPE_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN_SENIOR }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID_SENIOR }}
         run: python senior_jobs.py
