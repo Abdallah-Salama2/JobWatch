@@ -30,9 +30,16 @@ jobs:
       - name: Install dependencies
         run: pip install httpx python-dotenv
 
-      - name: Run script
+      - name: Run Junior Job Tracker
         env:
           JOBSPIPE_KEY: ${{ secrets.JOBSPIPE_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN_JUNIOR }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python main.py
+        run: python junior_jobs.py
+      
+      - name: Run Senior Job Tracker
+        env:
+          JOBSPIPE_KEY: ${{ secrets.JOBSPIPE_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN_SENIOR }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python senior_jobs.py
