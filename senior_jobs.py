@@ -72,9 +72,9 @@ def fetch_jsearch_jobs():
         print(f"\n--- Querying: '{q}' ---")
         try:
             r = httpx.get(
-                "https://jsearch.p.rapidapi.com/search",
+                "https://jsearch.p.rapidapi.com/search-v2",
                 headers=headers,
-                params={"query": q, "page": "1", "num_pages": "1", "date_posted": "today"},
+                params={"query": q, "num_pages": "1", "date_posted": "today"},
                 timeout=15
             )
             print(f"Status code: {r.status_code}")
