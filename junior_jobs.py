@@ -2,6 +2,7 @@ import httpx
 import sqlite3
 import os
 import re
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -199,19 +200,28 @@ def init_db(conn):
     conn.commit()
 
 
-def send_telegram(msg):
-    r = httpx.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": msg,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        },
-        timeout=10
-    )
-    if r.status_code != 200:
+def send_telegram(msg, max_retries=5):
+    for attempt in range(max_retries):
+        r = httpx.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": msg,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            },
+            timeout=10
+        )
+        if r.status_code == 200:
+            return
+        if r.status_code == 429:
+            retry_after = r.json().get("parameters", {}).get("retry_after", 5)
+            print(f"Telegram rate-limited, waiting {retry_after}s (attempt {attempt + 1}/{max_retries})")
+            time.sleep(retry_after + 1)
+            continue
         print(f"Telegram send failed: {r.status_code} - {r.text[:300]}")
+        return
+    print("Telegram send gave up after repeated 429s.")
 
 
 def main():
@@ -265,6 +275,7 @@ def main():
             f"🔗 {job['url']}"
         )
         send_telegram(msg)
+        time.sleep(1.1)  # stay under Telegram's ~1 msg/sec per-chat limit
 
     print(f"Sent {len(new_jobs)} jobs.")
 
