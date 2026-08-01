@@ -8,37 +8,12 @@ from datetime import datetime, timezone
 BASE = Path(__file__).parent
 DB_PATH = BASE / "jobs.db"
 
-JOBSPIPE_KEY = os.environ.get("JOBSPIPE_KEY")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 MAX_YEARS = 3
 MIN_STACK_MATCHES = 1
-
-BASE_FILTERS = {
-    "job_title_or": [
-        "fullstack developer", "fullstack engineer", "full stack engineer",
-        "web developer", "software engineer", "software developer",
-        "backend engineer", "backend developer", "api developer", "api engineer",
-        "php developer", "laravel developer", "python developer", "node developer",
-        "frontend developer", "frontend engineer", "react developer", 
-        "vue developer", "javascript developer"
-    ],
-    "job_title_not": [
-        "senior", "sr.", "lead", "principal", "staff",
-        "head of", "manager", "director", "vp", "architect",
-        "engineer iii", "engineer iv", "l4", "l5",
-    ],
-    "job_seniority_or": ["entry", "junior", "mid"],
-    "posted_at_max_age_days": 1,
-    "limit": 50
-}
-
-SEARCHES = [
-    {**BASE_FILTERS, "remote": True},
-    {**BASE_FILTERS, "job_country_code_or": ["EG"]},
-]
 
 STACK_KEYWORDS = [
     "php", "laravel", "javascript", "js", "typescript", "react", "vue",
@@ -51,12 +26,14 @@ EXP_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+
 def is_stack_match(job):
     description = (job.get("description") or "").lower()
     if not description:
         return True
     matches = sum(1 for kw in STACK_KEYWORDS if kw in description)
     return matches >= MIN_STACK_MATCHES
+
 
 def exceeds_experience(job):
     description = job.get("description") or ""
@@ -65,52 +42,31 @@ def exceeds_experience(job):
         return False
     return min(int(y) for y in matches) > MAX_YEARS
 
-def fetch_jobspipe_jobs():
-    if not JOBSPIPE_KEY:
-        return []
-    results = []
-    for query in SEARCHES:
-        try:
-            r = httpx.post(
-                "https://api.jobspipe.dev/v1/jobs/search",
-                headers={"Authorization": f"Bearer {JOBSPIPE_KEY}"},
-                json=query,
-                timeout=15
-            )
-            r.raise_for_status()
-            for job in r.json().get("data", []):
-                results.append({
-                    "id": f"jp_{job['id']}",
-                    "job_title": job.get("job_title"),
-                    "company": job.get("company") or "Unknown",
-                    "description": job.get("description") or "",
-                    "remote": job.get("remote"),
-                    "location": (job.get("cities") or [job.get("country") or "Egypt"])[0],
-                    "url": job.get("url") or job.get("final_url") or "",
-                    "salary": f"{job['min_annual_salary']:,.0f} USD/yr" if job.get("min_annual_salary") else ""
-                })
-        except Exception as e:
-            print(f"JobsPipe fetch warning: {e}")
-    return results
 
 def fetch_jsearch_jobs():
+    # This is where we stop and check: is the key even loaded?
     if not RAPIDAPI_KEY:
+        print("STOP: RAPIDAPI_KEY is empty/not set in the environment. "
+              "This is the #1 reason JSearch silently returns nothing.")
         return []
-    
+
+    print(f"Using RapidAPI key ending in: ...{RAPIDAPI_KEY[-6:]}")
+
     queries = [
         "Software Engineer in Egypt",
         "Full Stack Developer in Egypt",
         "PHP Laravel Developer in Egypt",
         "Frontend React Developer in Egypt"
     ]
-    
+
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
     }
-    
+
     results = []
     for q in queries:
+        print(f"\n--- Querying: '{q}' ---")
         try:
             r = httpx.get(
                 "https://jsearch.p.rapidapi.com/search",
@@ -118,8 +74,19 @@ def fetch_jsearch_jobs():
                 params={"query": q, "page": "1", "num_pages": "1", "date_posted": "today"},
                 timeout=15
             )
-            r.raise_for_status()
-            for job in r.json().get("data", []):
+            print(f"Status code: {r.status_code}")
+
+            # This is the key change: we look at the response BEFORE raising,
+            # so a failure never disappears silently.
+            if r.status_code != 200:
+                print(f"Response body (first 500 chars): {r.text[:500]}")
+                continue
+
+            data = r.json()
+            jobs_on_page = data.get("data", [])
+            print(f"Jobs returned by API for this query: {len(jobs_on_page)}")
+
+            for job in jobs_on_page:
                 title = job.get("job_title", "").lower()
                 if any(sr in title for sr in ["senior", "lead", "principal", "manager", "head"]):
                     continue
@@ -134,9 +101,14 @@ def fetch_jsearch_jobs():
                     "url": job.get("job_apply_link") or "",
                     "salary": ""
                 })
+
+        except httpx.HTTPStatusError as e:
+            print(f"HTTP error: {e.response.status_code} - {e.response.text[:500]}")
         except Exception as e:
-            print(f"JSearch fetch warning: {e}")
+            print(f"Unexpected error: {type(e).__name__}: {e}")
+
     return results
+
 
 def init_db(conn):
     conn.execute("""
@@ -149,8 +121,9 @@ def init_db(conn):
     """)
     conn.commit()
 
+
 def send_telegram(msg):
-    httpx.post(
+    r = httpx.post(
         f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
         json={
             "chat_id": TELEGRAM_CHAT_ID,
@@ -160,13 +133,17 @@ def send_telegram(msg):
         },
         timeout=10
     )
+    if r.status_code != 200:
+        print(f"Telegram send failed: {r.status_code} - {r.text[:300]}")
+
 
 def main():
     conn = sqlite3.connect(DB_PATH)
     init_db(conn)
 
-    all_jobs = fetch_jobspipe_jobs() + fetch_jsearch_jobs()
-    
+    all_jobs = fetch_jsearch_jobs()
+    print(f"\nTotal jobs fetched from RapidAPI (all queries): {len(all_jobs)}")
+
     unique_jobs = {}
     for j in all_jobs:
         if j["id"] not in unique_jobs:
@@ -180,7 +157,6 @@ def main():
         if exceeds_experience(job):
             skipped_exp += 1
             continue
-
         if not is_stack_match(job):
             skipped_stack += 1
             continue
@@ -196,28 +172,26 @@ def main():
     conn.commit()
     conn.close()
 
-    print(f"Filtered: {skipped_exp} over-exp, {skipped_stack} wrong stack, {len(new_jobs)} new sent.")
+    print(f"Filtered: {skipped_exp} over-exp, {skipped_stack} wrong stack, {len(new_jobs)} new.")
 
     if not new_jobs:
         print("No new jobs today.")
-        send_telegram("📭 No new matching developer jobs today.")
+        send_telegram("📭 No new matching developer jobs today (RapidAPI only test).")
         return
 
-    send_telegram(f"🔍 *{len(new_jobs)} dev job(s) matching your profile today:*")
+    send_telegram(f"🔍 *{len(new_jobs)} dev job(s) matching your profile today (RapidAPI only test):*")
 
     for job in new_jobs:
         modality = "🌍 Remote" if job["remote"] else "🏢 On-site / Egypt"
-        sal = f"\n💰 {job['salary']}" if job["salary"] else ""
-
         msg = (
             f"*{job['job_title']}* @ {job['company']}\n"
-            f"📍 {job['location']} | {modality}"
-            f"{sal}\n"
+            f"📍 {job['location']} | {modality}\n"
             f"🔗 {job['url']}"
         )
         send_telegram(msg)
 
     print(f"Sent {len(new_jobs)} jobs.")
+
 
 if __name__ == "__main__":
     main()
