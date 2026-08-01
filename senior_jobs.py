@@ -8,8 +8,7 @@ from datetime import datetime, timezone
 BASE = Path(__file__).parent
 DB_PATH = BASE / "jobs.db"
 
-JOBSPIPE_KEY = os.environ.get("JOBSPIPE_KEY")
-RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
+RAPIDAPI_KEY = os.environ["RAPIDAPI_KEY"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
@@ -18,20 +17,13 @@ MIN_STACK_MATCHES = 1
 
 SENIOR_TITLES = ["senior", "sr", "lead", "principal", "staff", "architect", "head", "manager"]
 
-BASE_FILTERS = {
-    "job_title_or": [
-        "senior fullstack developer", "senior software engineer", "lead software engineer",
-        "senior backend engineer", "senior php developer", "senior laravel developer",
-        "senior python developer", "senior node developer", "senior frontend developer", "senior react developer"
-    ],
-    "job_seniority_or": ["senior", "lead", "expert"],
-    "posted_at_max_age_days": 1,
-    "limit": 50
-}
-
-SEARCHES = [
-    {**BASE_FILTERS, "remote": True},
-    {**BASE_FILTERS, "job_country_code_or": ["EG"]},
+QUERIES = [
+    "Senior Full Stack Engineer in Egypt",
+    "Senior Software Engineer in Cairo",
+    "Senior PHP Laravel Developer in Egypt",
+    "Senior Backend Developer in Cairo",
+    "Senior Frontend React Developer in Egypt",
+    "Lead Developer in Egypt"
 ]
 
 STACK_KEYWORDS = [
@@ -60,57 +52,23 @@ def is_senior_experience(job):
     title = (job.get("job_title") or "").lower()
     return any(kw in title for kw in SENIOR_TITLES)
 
-def fetch_jobspipe_jobs():
-    if not JOBSPIPE_KEY:
-        return []
-    results = []
-    for query in SEARCHES:
-        try:
-            r = httpx.post(
-                "https://api.jobspipe.dev/v1/jobs/search",
-                headers={"Authorization": f"Bearer {JOBSPIPE_KEY}"},
-                json=query,
-                timeout=15
-            )
-            r.raise_for_status()
-            for job in r.json().get("data", []):
-                results.append({
-                    "id": f"jp_{job['id']}",
-                    "job_title": job.get("job_title"),
-                    "company": job.get("company") or "Unknown",
-                    "description": job.get("description") or "",
-                    "remote": job.get("remote"),
-                    "location": (job.get("cities") or [job.get("country") or "Egypt"])[0],
-                    "url": job.get("url") or job.get("final_url") or "",
-                    "salary": f"{job['min_annual_salary']:,.0f} USD/yr" if job.get("min_annual_salary") else ""
-                })
-        except Exception as e:
-            print(f"JobsPipe fetch warning: {e}")
-    return results
-
 def fetch_jsearch_jobs():
-    if not RAPIDAPI_KEY:
-        return []
-    
-    queries = [
-        "Senior Software Engineer in Egypt",
-        "Senior Full Stack Developer in Egypt",
-        "Senior Backend Developer in Egypt",
-        "Senior Frontend Developer in Egypt"
-    ]
-    
     headers = {
         "X-RapidAPI-Key": RAPIDAPI_KEY,
         "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
     }
     
     results = []
-    for q in queries:
+    for q in QUERIES:
         try:
             r = httpx.get(
                 "https://jsearch.p.rapidapi.com/search",
                 headers=headers,
-                params={"query": q, "page": "1", "num_pages": "1", "date_posted": "today"},
+                params={
+                    "query": q,
+                    "page": "1",
+                    "num_pages": "1"
+                },
                 timeout=15
             )
             r.raise_for_status()
@@ -122,11 +80,10 @@ def fetch_jsearch_jobs():
                     "description": job.get("job_description") or "",
                     "remote": job.get("job_is_remote", False),
                     "location": f"{job.get('job_city') or 'Egypt'}, EG" if job.get("job_city") else "Egypt",
-                    "url": job.get("job_apply_link") or "",
-                    "salary": ""
+                    "url": job.get("job_apply_link") or job.get("job_google_link") or ""
                 })
         except Exception as e:
-            print(f"JSearch fetch warning: {e}")
+            print(f"JSearch error for query '{q}': {e}")
     return results
 
 def init_db(conn):
@@ -156,12 +113,8 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     init_db(conn)
 
-    all_jobs = fetch_jobspipe_jobs() + fetch_jsearch_jobs()
-    
-    unique_jobs = {}
-    for j in all_jobs:
-        if j["id"] not in unique_jobs:
-            unique_jobs[j["id"]] = j
+    jobs = fetch_jsearch_jobs()
+    unique_jobs = {j["id"]: j for j in jobs}
 
     new_jobs = []
     for job in unique_jobs.values():
@@ -180,23 +133,22 @@ def main():
     conn.close()
 
     if not new_jobs:
-        print("No new senior jobs today.")
-        send_telegram("📭 No new matching Senior (3+ yrs) developer jobs today.")
+        print("No new senior jobs found via JSearch.")
+        send_telegram("📭 No new matching Senior Egyptian jobs from JSearch today.")
         return
 
-    send_telegram(f"👔 *{len(new_jobs)} Senior (3+ yrs) dev job(s) found today:*")
+    send_telegram(f"👔 *{len(new_jobs)} Senior Egyptian job(s) found via JSearch:*")
 
     for job in new_jobs:
-        modality = "🌍 Remote" if job["remote"] else "🏢 On-site / Egypt"
-        sal = f"\n💰 {job['salary']}" if job["salary"] else ""
-
+        modality = "🌍 Remote" if job["remote"] else "🏢 On-site / Hybrid"
         msg = (
             f"*{job['job_title']}* @ {job['company']}\n"
-            f"📍 {job['location']} | {modality}"
-            f"{sal}\n"
+            f"📍 {job['location']} | {modality}\n"
             f"🔗 {job['url']}"
         )
         send_telegram(msg)
+
+    print(f"Sent {len(new_jobs)} jobs.")
 
 if __name__ == "__main__":
     main()
