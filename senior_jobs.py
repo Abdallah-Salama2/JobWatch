@@ -74,7 +74,7 @@ def fetch_jsearch_jobs():
             r = httpx.get(
                 "https://jsearch.p.rapidapi.com/search-v2",
                 headers=headers,
-                params={"query": q, "num_pages": "1", "date_posted": "today"},
+                params={"query": q, "num_pages": "1", "date_posted": "today", "country": "eg"},
                 timeout=15
             )
             print(f"Status code: {r.status_code}")
@@ -86,7 +86,8 @@ def fetch_jsearch_jobs():
                 continue
 
             data = r.json()
-            jobs_on_page = data.get("data", [])
+            # NOTE: /search-v2 nests jobs under data.jobs (not data directly like the old /search did)
+            jobs_on_page = data.get("data", {}).get("jobs", [])
             print(f"Jobs returned by API for this query: {len(jobs_on_page)}")
 
             for job in jobs_on_page:
