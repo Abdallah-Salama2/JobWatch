@@ -8,24 +8,20 @@ from datetime import datetime, timezone
 BASE = Path(__file__).parent
 DB_PATH = BASE / "jobs.db"
 
-JOBSPIPE_KEY = os.environ["JOBSPIPE_KEY"]
+JOBSPIPE_KEY = os.environ.get("JOBSPIPE_KEY")
+RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY")
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-MAX_YEARS = 3
-MIN_STACK_MATCHES = 1  # Kept at 1 to ensure broad match across dev roles
+MAX_YEARS = 2
+MIN_STACK_MATCHES = 1
 
 BASE_FILTERS = {
     "job_title_or": [
-        # Full-Stack & Web
         "fullstack developer", "fullstack engineer", "full stack engineer",
         "web developer", "software engineer", "software developer",
-        
-        # Backend & APIs
         "backend engineer", "backend developer", "api developer", "api engineer",
         "php developer", "laravel developer", "python developer", "node developer",
-        
-        # Frontend
         "frontend developer", "frontend engineer", "react developer", 
         "vue developer", "javascript developer"
     ],
@@ -45,11 +41,8 @@ SEARCHES = [
 ]
 
 STACK_KEYWORDS = [
-    # Core Languages & Frameworks
     "php", "laravel", "javascript", "js", "typescript", "react", "vue",
     "inertia", "python", "node", "express", "sql", "mysql", "postgresql",
-    
-    # Tools & Concepts
     "tailwind", "rest api", "restful", "docker", "git", "linux", "html", "css"
 ]
 
@@ -61,7 +54,7 @@ EXP_PATTERN = re.compile(
 def is_stack_match(job):
     description = (job.get("description") or "").lower()
     if not description:
-        return True  # no description → keep, safer than missing legit jobs
+        return True
     matches = sum(1 for kw in STACK_KEYWORDS if kw in description)
     return matches >= MIN_STACK_MATCHES
 
@@ -71,6 +64,79 @@ def exceeds_experience(job):
     if not matches:
         return False
     return min(int(y) for y in matches) > MAX_YEARS
+
+def fetch_jobspipe_jobs():
+    if not JOBSPIPE_KEY:
+        return []
+    results = []
+    for query in SEARCHES:
+        try:
+            r = httpx.post(
+                "https://api.jobspipe.dev/v1/jobs/search",
+                headers={"Authorization": f"Bearer {JOBSPIPE_KEY}"},
+                json=query,
+                timeout=15
+            )
+            r.raise_for_status()
+            for job in r.json().get("data", []):
+                results.append({
+                    "id": f"jp_{job['id']}",
+                    "job_title": job.get("job_title"),
+                    "company": job.get("company") or "Unknown",
+                    "description": job.get("description") or "",
+                    "remote": job.get("remote"),
+                    "location": (job.get("cities") or [job.get("country") or "Egypt"])[0],
+                    "url": job.get("url") or job.get("final_url") or "",
+                    "salary": f"{job['min_annual_salary']:,.0f} USD/yr" if job.get("min_annual_salary") else ""
+                })
+        except Exception as e:
+            print(f"JobsPipe fetch warning: {e}")
+    return results
+
+def fetch_jsearch_jobs():
+    if not RAPIDAPI_KEY:
+        return []
+    
+    queries = [
+        "Software Engineer in Egypt",
+        "Full Stack Developer in Egypt",
+        "PHP Laravel Developer in Egypt",
+        "Frontend React Developer in Egypt"
+    ]
+    
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "jsearch.p.rapidapi.com"
+    }
+    
+    results = []
+    for q in queries:
+        try:
+            r = httpx.get(
+                "https://jsearch.p.rapidapi.com/search",
+                headers=headers,
+                params={"query": q, "page": "1", "num_pages": "1", "date_posted": "today"},
+                timeout=15
+            )
+            r.raise_for_status()
+            for job in r.json().get("data", []):
+                title = job.get("job_title", "").lower()
+                if any(sr in title for sr in ["senior", "lead", "principal", "manager", "head"]):
+                    continue
+
+                results.append({
+                    "id": f"js_{job.get('job_id')}",
+                    "job_title": job.get("job_title"),
+                    "company": job.get("employer_name") or "Unknown",
+                    "description": job.get("job_description") or "",
+                    "remote": job.get("job_is_remote", False),
+                    "location": f"{job.get('job_city') or 'Egypt'}, EG" if job.get("job_city") else "Egypt",
+                    "url": job.get("job_apply_link") or "",
+                    "salary": ""
+                })
+        except Exception as e:
+            print(f"JSearch fetch warning: {e}")
+    return results
 
 def init_db(conn):
     conn.execute("""
@@ -82,24 +148,6 @@ def init_db(conn):
         )
     """)
     conn.commit()
-
-def fetch_jobs():
-    seen_ids = {}
-    results = []
-    for query in SEARCHES:
-        r = httpx.post(
-            "https://api.jobspipe.dev/v1/jobs/search",
-            headers={"Authorization": f"Bearer {JOBSPIPE_KEY}"},
-            json=query,
-            timeout=15
-        )
-        r.raise_for_status()
-        for job in r.json().get("data", []):
-            job_id = str(job["id"])
-            if job_id not in seen_ids:
-                seen_ids[job_id] = True
-                results.append(job)
-    return results
 
 def send_telegram(msg):
     httpx.post(
@@ -117,19 +165,18 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     init_db(conn)
 
-    try:
-        jobs = fetch_jobs()
-    except Exception as e:
-        send_telegram(f"⚠️ JobWatch fetch failed: {e}")
-        return
+    all_jobs = fetch_jobspipe_jobs() + fetch_jsearch_jobs()
+    
+    unique_jobs = {}
+    for j in all_jobs:
+        if j["id"] not in unique_jobs:
+            unique_jobs[j["id"]] = j
 
     new_jobs = []
     skipped_exp = 0
     skipped_stack = 0
 
-    for job in jobs:
-        job_id = str(job["id"])
-
+    for job in unique_jobs.values():
         if exceeds_experience(job):
             skipped_exp += 1
             continue
@@ -138,14 +185,11 @@ def main():
             skipped_stack += 1
             continue
 
-        exists = conn.execute(
-            "SELECT 1 FROM seen_jobs WHERE id = ?", (job_id,)
-        ).fetchone()
+        exists = conn.execute("SELECT 1 FROM seen_jobs WHERE id = ?", (job["id"],)).fetchone()
         if not exists:
             conn.execute(
                 "INSERT INTO seen_jobs VALUES (?, ?, ?, ?)",
-                (job_id, job.get("job_title"), job.get("company"),
-                 datetime.now(timezone.utc).isoformat())
+                (job["id"], job["job_title"], job["company"], datetime.now(timezone.utc).isoformat())
             )
             new_jobs.append(job)
 
@@ -162,24 +206,14 @@ def main():
     send_telegram(f"🔍 *{len(new_jobs)} dev job(s) matching your profile today:*")
 
     for job in new_jobs:
-        sal = ""
-        if job.get("min_annual_salary"):
-            currency = job.get("salary_currency") or "USD"
-            sal = f"\n💰 {job['min_annual_salary']:,.0f}–{job.get('max_annual_salary', '?'):,.0f} {currency}/yr"
-
-        is_remote = job.get("remote")
-        cities = job.get("cities") or []
-        country = job.get("country") or ""
-        location = cities[0] if cities else country or "Remote"
-        modality = "🌍 Remote" if is_remote else "🏢 On-site / Egypt"
-
-        apply_url = job.get("url") or job.get("final_url") or job.get("source_url") or ""
+        modality = "🌍 Remote" if job["remote"] else "🏢 On-site / Egypt"
+        sal = f"\n💰 {job['salary']}" if job["salary"] else ""
 
         msg = (
-            f"*{job.get('job_title')}* @ {job.get('company') or 'Unknown'}\n"
-            f"📍 {location} | {modality}"
+            f"*{job['job_title']}* @ {job['company']}\n"
+            f"📍 {job['location']} | {modality}"
             f"{sal}\n"
-            f"🔗 {apply_url}"
+            f"🔗 {job['url']}"
         )
         send_telegram(msg)
 
