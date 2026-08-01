@@ -23,6 +23,7 @@ jobs:
       - name: Run Junior/Mid Tracker
         env:
           JOBSPIPE_KEY: ${{ secrets.JOBSPIPE_KEY }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID_JUNIOR }}
         run: python junior_jobs.py
@@ -30,6 +31,7 @@ jobs:
       - name: Run Senior Tracker
         env:
           JOBSPIPE_KEY: ${{ secrets.JOBSPIPE_KEY }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID_SENIOR }}
         run: python senior_jobs.py
