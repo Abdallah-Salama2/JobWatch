@@ -2,7 +2,7 @@ name: JobWatch Daily Search
 
 on:
   schedule:
-    - cron: '0 */8 * * *'  # Runs every 8 hours (e.g., 00:00, 08:00, 16:00 UTC)
+    - cron: '17 */8 * * *'  # 00:17, 08:17, 16:17 UTC بدل 00:00, 08:00, 16:00
   workflow_dispatch:
 
 jobs:
