@@ -3,6 +3,7 @@ import sqlite3
 import os
 import re
 import time
+import html
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -123,12 +124,21 @@ def fetch_jsearch_jobs():
                 params = {"query": q, "num_pages": "1", "date_posted": "today"}
                 params.update(mode["extra_params"])
 
-                r = httpx.get(
-                    "https://jsearch.p.rapidapi.com/search-v2",
-                    headers=headers,
-                    params=params,
-                    timeout=15
-                )
+                try:
+                    r = httpx.get(
+                        "https://jsearch.p.rapidapi.com/search-v2",
+                        headers=headers,
+                        params=params,
+                        timeout=20
+                    )
+                except (httpx.ReadTimeout, httpx.ConnectTimeout):
+                    print("Timed out, retrying once...")
+                    r = httpx.get(
+                        "https://jsearch.p.rapidapi.com/search-v2",
+                        headers=headers,
+                        params=params,
+                        timeout=25
+                    )
                 print(f"Status code: {r.status_code}")
 
                 if r.status_code != 200:
@@ -198,7 +208,7 @@ def send_telegram(msg, max_retries=5):
             json={
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": msg,
-                "parse_mode": "Markdown",
+                "parse_mode": "HTML",
                 "disable_web_page_preview": True
             },
             timeout=10
@@ -250,17 +260,21 @@ def main():
         send_telegram("📭 No new matching Senior (3+ yrs) developer jobs today.")
         return
 
-    send_telegram(f"👔 *{len(new_jobs)} Senior (3+ yrs) dev job(s) found today:*")
+    send_telegram(f"👔 <b>{len(new_jobs)} Senior (3+ yrs) dev job(s) found today:</b>")
 
     for job in new_jobs:
         modality = "🌍 Remote" if job["remote"] else "🏢 On-site / Egypt"
-        sal = f"\n💰 {job['salary']}" if job["salary"] else ""
+        sal = f"\n💰 {html.escape(job['salary'])}" if job["salary"] else ""
+
+        title = html.escape(job["job_title"] or "Untitled role")
+        company = html.escape(job["company"] or "Unknown")
+        location = html.escape(job["location"] or "")
 
         msg = (
-            f"*{job['job_title']}* @ {job['company']}\n"
-            f"📍 {job['location']} | {modality}"
+            f"<b>{title}</b> @ {company}\n"
+            f"📍 {location} | {modality}"
             f"{sal}\n"
-            f"🔗 {job['url']}"
+            f"🔗 {html.escape(job['url'])}"
         )
         send_telegram(msg)
         time.sleep(1.1)  # stay under Telegram's ~1 msg/sec per-chat limit
